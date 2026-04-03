@@ -1,0 +1,17 @@
+[Unit]
+Description=PicoMate Food Manager Server
+After=network.target
+
+[Service]
+Type=simple
+User=arduino
+WorkingDirectory=/home/arduino/unoq_food
+ExecStart=/home/arduino/unoq_food/food-manager
+Restart=always
+RestartSec=5
+Environment=FOOD_DB_PATH=/home/arduino/unoq_food/data/food.db
+Environment=FOOD_STATIC_DIR=/home/arduino/unoq_food/server/src/static
+Environment=OLLAMA_URL=http://100.114.105.110:11434
+
+[Install]
+WantedBy=multi-user.target

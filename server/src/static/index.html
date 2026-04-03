@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>South Indian Food Manager</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #f5f5f5; display: flex; height: 100vh; }
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .tabs { display: flex; background: white; border-bottom: 2px solid #e94560; padding: 0 16px; }
+  .tab { padding: 12px 20px; cursor: pointer; font-weight: 500; color: #666; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+  .tab.active { color: #e94560; border-bottom-color: #e94560; }
+  .tab-content { display: none; flex: 1; overflow-y: auto; padding: 16px; }
+  .tab-content.active { display: flex; flex-direction: column; gap: 12px; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  th { background: #1a1a2e; color: #eee; padding: 10px 12px; text-align: left; font-size: 13px; }
+  td { padding: 9px 12px; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #fafafa; }
+  .ingredient-badge { background: #e8f4fd; color: #2980b9; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+  .btn { padding: 4px 10px; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  .btn-edit   { background: #4a90e2; color: white; }
+  .btn-delete { background: #e94560; color: white; margin-left: 4px; }
+  .btn-edit:hover   { background: #357abd; }
+  .btn-delete:hover { background: #c73652; }
+  .add-form { background: white; border-radius: 8px; padding: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .add-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #555; }
+  .add-form input, .add-form select { padding: 6px 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 13px; width: 200px; }
+  .add-form input.wide { width: 300px; }
+  .char-count { font-size: 11px; color: #999; text-align: right; }
+  .char-count.over { color: #e94560; font-weight: bold; }
+  .btn-add { background: #27ae60; color: white; padding: 6px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; height: 32px; align-self: flex-end; }
+  .btn-add:hover { background: #219150; }
+  .condiments-list { background: white; border-radius: 8px; padding: 14px; box-shadow: 0 1px 4px rgba(0,0,0,.1); display: flex; flex-wrap: wrap; gap: 8px; }
+  .condiment-tag { background: #eef; border: 1px solid #aac; border-radius: 20px; padding: 4px 12px; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+  .condiment-tag button { background: none; border: none; color: #e94560; cursor: pointer; font-size: 16px; line-height: 1; }
+  .cat-badge { border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; }
+  .cat-breakfast { background:#e8f4fd; color:#2471a3; }
+  .cat-curries   { background:#fde8e8; color:#c0392b; }
+  .cat-snacks    { background:#fef3e2; color:#d35400; }
+  .cat-desserts  { background:#f0e8fd; color:#7d3c98; }
+  .btn-regen  { background:#f39c12; color:white; margin-left:4px; }
+  .btn-regen:hover { background:#d68910; }
+  .btn-generate { background:#27ae60; color:white; }
+  .btn-generate:hover { background:#219150; }
+  .recipe-panel { background:white; border-radius:8px; padding:16px; box-shadow:0 1px 4px rgba(0,0,0,.15); display:none; flex-direction:column; gap:10px; }
+  .recipe-panel.open { display:flex; }
+  .recipe-panel h3 { font-size:14px; color:#333; margin-bottom:2px; }
+  .recipe-panel label { font-size:12px; color:#555; display:flex; flex-direction:column; gap:4px; }
+  .recipe-panel input  { padding:6px 10px; border:1px solid #ddd; border-radius:4px; font-size:13px; }
+  .recipe-panel textarea { padding:8px 10px; border:1px solid #ddd; border-radius:4px; font-size:12px; font-family:monospace; resize:vertical; }
+  .recipe-panel .row { display:flex; gap:12px; }
+  .recipe-panel .row label { flex:1; }
+  .recipe-actions { display:flex; gap:8px; margin-top:4px; }
+  .btn-save { background:#27ae60; color:white; padding:6px 18px; border:none; border-radius:4px; cursor:pointer; font-size:13px; font-weight:500; }
+  .btn-save:hover { background:#219150; }
+  .btn-cancel-edit { background:#aaa; color:white; padding:6px 14px; border:none; border-radius:4px; cursor:pointer; font-size:13px; }
+  .regen-msg { font-size:12px; color:#e94560; font-style:italic; }
+</style>
+</head>
+<body>
+
+<div id="main">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('breakfast')">Breakfast</div>
+    <div class="tab" onclick="switchTab('curries')">Curries</div>
+    <div class="tab" onclick="switchTab('snacks')">Snacks</div>
+    <div class="tab" onclick="switchTab('desserts')">Desserts</div>
+    <div class="tab" onclick="switchTab('recipes')">Recipes</div>
+    <div class="tab" onclick="switchTab('condiments')">Condiments</div>
+    <div class="tab" onclick="switchTab('ingredients')">Ingredients</div>
+  </div>
+
+  <!-- Breakfast -->
+  <div id="tab-breakfast" class="tab-content active">
+    <table><thead><tr><th>Name</th><th>Ingredient</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody id="tbody-breakfast"></tbody></table>
+    <div class="add-form">
+      <label>Name (max 18)<input id="breakfast-name" maxlength="18" placeholder="Idli" oninput="countChars(this)"><span class="char-count" id="breakfast-name-count">0/18</span></label>
+      <label>Ingredient<select id="breakfast-ingredient"><option value="">— none —</option></select></label>
+      <label>Notes<input id="breakfast-notes" class="wide" placeholder="Optional"></label>
+      <button class="btn-add" onclick="addFood('breakfast')">Add</button>
+    </div>
+  </div>
+
+  <!-- Curries -->
+  <div id="tab-curries" class="tab-content">
+    <table><thead><tr><th>Name</th><th>Ingredient</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody id="tbody-curries"></tbody></table>
+    <div class="add-form">
+      <label>Name (max 18)<input id="curries-name" maxlength="18" placeholder="Tomato Pappu" oninput="countChars(this)"><span class="char-count" id="curries-name-count">0/18</span></label>
+      <label>Ingredient<select id="curries-ingredient"><option value="">— none —</option></select></label>
+      <label>Notes<input id="curries-notes" class="wide" placeholder="Optional"></label>
+      <button class="btn-add" onclick="addFood('curries')">Add</button>
+    </div>
+  </div>
+
+  <!-- Snacks -->
+  <div id="tab-snacks" class="tab-content">
+    <table><thead><tr><th>Name</th><th>Ingredient</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody id="tbody-snacks"></tbody></table>
+    <div class="add-form">
+      <label>Name (max 18)<input id="snacks-name" maxlength="18" placeholder="Punugulu" oninput="countChars(this)"><span class="char-count" id="snacks-name-count">0/18</span></label>
+      <label>Ingredient<select id="snacks-ingredient"><option value="">— none —</option></select></label>
+      <label>Notes<input id="snacks-notes" class="wide" placeholder="Optional"></label>
+      <button class="btn-add" onclick="addFood('snacks')">Add</button>
+    </div>
+  </div>
+
+  <!-- Desserts -->
+  <div id="tab-desserts" class="tab-content">
+    <table><thead><tr><th>Name</th><th>Ingredient</th><th>Notes</th><th>Actions</th></tr></thead>
+    <tbody id="tbody-desserts"></tbody></table>
+    <div class="add-form">
+      <label>Name (max 18)<input id="desserts-name" maxlength="18" placeholder="Payasam" oninput="countChars(this)"><span class="char-count" id="desserts-name-count">0/18</span></label>
+      <label>Ingredient<select id="desserts-ingredient"><option value="">— none —</option></select></label>
+      <label>Notes<input id="desserts-notes" class="wide" placeholder="Optional"></label>
+      <button class="btn-add" onclick="addFood('desserts')">Add</button>
+    </div>
+  </div>
+
+  <!-- Recipes -->
+  <div id="tab-recipes" class="tab-content">
+    <table>
+      <thead><tr><th>Food</th><th>Category</th><th>Title</th><th>Actions</th></tr></thead>
+      <tbody id="tbody-recipes"></tbody>
+    </table>
+    <div class="recipe-panel" id="recipe-panel">
+      <h3 id="recipe-panel-heading"></h3>
+      <label>Title<input id="r-title" style="max-width:320px"></label>
+      <div class="row">
+        <label>Ingredients <span style="color:#999;font-size:11px">(one per line)</span>
+          <textarea id="r-ingredients" rows="10"></textarea>
+        </label>
+        <label>Steps <span style="color:#999;font-size:11px">(one per line)</span>
+          <textarea id="r-steps" rows="10"></textarea>
+        </label>
+      </div>
+      <div class="recipe-actions">
+        <button class="btn-save" onclick="saveRecipe()">Save</button>
+        <button class="btn-cancel-edit" onclick="closeRecipePanel()">Cancel</button>
+        <span class="regen-msg" id="regen-msg"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ingredients -->
+  <div id="tab-ingredients" class="tab-content">
+    <div class="condiments-list" id="ingredients-list"></div>
+    <div class="add-form">
+      <label>Name<input id="ingredient-name" placeholder="e.g. coconut"></label>
+      <button class="btn-add" onclick="addIngredient()">Add</button>
+    </div>
+  </div>
+
+  <!-- Condiments -->
+  <div id="tab-condiments" class="tab-content">
+    <div class="condiments-list" id="condiments-list"></div>
+    <div class="add-form">
+      <label>Name<input id="condiment-name" placeholder="Rasam"></label>
+      <button class="btn-add" onclick="addCondiment()">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CATS = ['breakfast', 'curries', 'snacks', 'desserts'];
+let allIngredients = [];
+
+async function loadIngredientSelects() {
+  const res = await fetch('/api/ingredients');
+  allIngredients = (await res.json()).map(i => i.name);
+  CATS.forEach(cat => {
+    const sel = document.getElementById(cat + '-ingredient');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— none —</option>' +
+      allIngredients.map(i => `<option value="${esc(i)}">${esc(i)}</option>`).join('');
+    sel.value = current;
+  });
+}
+
+function switchTab(cat) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    const cats = [...CATS, 'recipes', 'condiments', 'ingredients'];
+    t.classList.toggle('active', cats[i] === cat);
+  });
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + cat).classList.add('active');
+  if (cat === 'condiments')  loadCondiments();
+  else if (cat === 'ingredients') loadIngredients();
+  else if (cat === 'recipes') loadRecipes();
+  else loadFoods(cat);
+}
+
+async function loadFoods(cat) {
+  const res = await fetch('/api/foods/' + cat);
+  const items = await res.json();
+
+  const tbody = document.getElementById('tbody-' + cat);
+  tbody.innerHTML = items.map(item => `
+    <tr id="row-${cat}-${item.id}">
+      <td>${esc(item.name)}</td>
+      <td>${item.ingredient ? `<span class="ingredient-badge">${esc(item.ingredient)}</span>` : ''}</td>
+      <td>${esc(item.notes)}</td>
+      <td>
+        <button class="btn btn-edit" onclick="editFood('${cat}', ${item.id}, '${esc2(item.name)}', '${esc2(item.ingredient)}', '${esc2(item.notes)}')">Edit</button>
+        <button class="btn btn-delete" onclick="deleteFood('${cat}', ${item.id})">Del</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function addFood(cat) {
+  const name       = document.getElementById(cat + '-name').value.trim();
+  const ingredient = document.getElementById(cat + '-ingredient').value;
+  const notes      = document.getElementById(cat + '-notes').value.trim();
+  if (!name) return;
+  await fetch('/api/foods/' + cat, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, ingredient, notes })
+  });
+  document.getElementById(cat + '-name').value = '';
+  document.getElementById(cat + '-ingredient').value = '';
+  document.getElementById(cat + '-notes').value = '';
+  loadFoods(cat);
+}
+
+async function deleteFood(cat, id) {
+  if (!confirm('Delete this item?')) return;
+  await fetch('/api/foods/' + cat + '/' + id, { method: 'DELETE' });
+  loadFoods(cat);
+}
+
+function editFood(cat, id, name, ingredient, notes) {
+  const ingOptions = ['', ...allIngredients].map(i =>
+    `<option value="${esc(i)}" ${i === ingredient ? 'selected' : ''}>${i || '— none —'}</option>`
+  ).join('');
+  const row = document.getElementById('row-' + cat + '-' + id);
+  row.innerHTML = `
+    <td><input id="e-name" value="${esc(name)}" style="width:140px" maxlength="18"></td>
+    <td><select id="e-ingredient" style="width:130px">${ingOptions}</select></td>
+    <td><input id="e-notes" value="${esc(notes)}" style="width:220px"></td>
+    <td>
+      <button class="btn btn-edit" onclick="saveFood('${cat}', ${id})">Save</button>
+      <button class="btn btn-delete" onclick="loadFoods('${cat}')">Cancel</button>
+    </td>`;
+}
+
+async function saveFood(cat, id) {
+  const name       = document.getElementById('e-name').value.trim();
+  const ingredient = document.getElementById('e-ingredient').value;
+  const notes      = document.getElementById('e-notes').value.trim();
+  await fetch('/api/foods/' + cat + '/' + id, {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name, ingredient, notes })
+  });
+  loadFoods(cat);
+}
+
+async function loadCondiments() {
+  const res = await fetch('/api/condiments');
+  const items = await res.json();
+  document.getElementById('condiments-list').innerHTML = items.map(c =>
+    `<div class="condiment-tag">${esc(c.name)}<button onclick="deleteCondiment(${c.id})" title="Remove">×</button></div>`
+  ).join('');
+}
+
+async function addCondiment() {
+  const name = document.getElementById('condiment-name').value.trim();
+  if (!name) return;
+  await fetch('/api/condiments', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name })
+  });
+  document.getElementById('condiment-name').value = '';
+  loadCondiments();
+}
+
+async function deleteCondiment(id) {
+  await fetch('/api/condiments/' + id, { method: 'DELETE' });
+  loadCondiments();
+}
+
+async function loadIngredients() {
+  const res = await fetch('/api/ingredients');
+  const items = await res.json();
+  document.getElementById('ingredients-list').innerHTML = items.map(i =>
+    `<div class="condiment-tag">${esc(i.name)}<button onclick="deleteIngredient(${i.id})" title="Remove">×</button></div>`
+  ).join('');
+}
+
+async function addIngredient() {
+  const name = document.getElementById('ingredient-name').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/ingredients', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ name })
+  });
+  if (res.ok) {
+    document.getElementById('ingredient-name').value = '';
+    await loadIngredientSelects();
+    loadIngredients();
+  }
+}
+
+async function deleteIngredient(id) {
+  if (!confirm('Delete this ingredient?')) return;
+  await fetch('/api/ingredients/' + id, { method: 'DELETE' });
+  await loadIngredientSelects();
+  loadIngredients();
+}
+
+function countChars(input) {
+  const counter = document.getElementById(input.id + '-count');
+  if (!counter) return;
+  const n = input.value.length;
+  counter.textContent = n + '/18';
+  counter.classList.toggle('over', n > 18);
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function esc2(s) { return String(s).replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+
+// ── Recipes ────────────────────────────────────────────────────────────────────
+
+let currentRecipeFood = null;
+
+async function loadRecipes() {
+  const res = await fetch('/api/recipes');
+  const items = await res.json();
+  document.getElementById('tbody-recipes').innerHTML = items.map(item => {
+    const badge = `<span class="cat-badge cat-${item.category}">${item.category}</span>`;
+    if (item.cached) {
+      return `<tr id="rrow-${esc(item.food)}">
+        <td>${esc(item.food)}</td>
+        <td>${badge}</td>
+        <td>${esc(item.title || '')}</td>
+        <td>
+          <button class="btn btn-edit"   onclick="viewRecipe('${esc2(item.food)}')">View</button>
+          <button class="btn btn-regen"  onclick="regenRecipe('${esc2(item.food)}')">Regen</button>
+          <button class="btn btn-delete" onclick="deleteRecipe('${esc2(item.food)}')">Del</button>
+        </td></tr>`;
+    } else {
+      return `<tr id="rrow-${esc(item.food)}">
+        <td>${esc(item.food)}</td>
+        <td>${badge}</td>
+        <td style="color:#aaa">—</td>
+        <td><button class="btn btn-generate" onclick="regenRecipe('${esc2(item.food)}')">Generate</button></td>
+      </tr>`;
+    }
+  }).join('');
+}
+
+async function viewRecipe(food) {
+  const res = await fetch('/api/recipe/detail?food=' + encodeURIComponent(food));
+  if (!res.ok) { alert('Recipe not found'); return; }
+  const data = await res.json();
+  currentRecipeFood = food;
+  document.getElementById('recipe-panel-heading').textContent = food;
+  document.getElementById('r-title').value       = data.title;
+  document.getElementById('r-ingredients').value = data.ingredients.join('\n');
+  document.getElementById('r-steps').value       = data.steps.join('\n');
+  document.getElementById('regen-msg').textContent = '';
+  const panel = document.getElementById('recipe-panel');
+  panel.classList.add('open');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeRecipePanel() {
+  document.getElementById('recipe-panel').classList.remove('open');
+  currentRecipeFood = null;
+}
+
+async function saveRecipe() {
+  if (!currentRecipeFood) return;
+  const title       = document.getElementById('r-title').value.trim();
+  const ingredients = document.getElementById('r-ingredients').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const steps       = document.getElementById('r-steps').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const res = await fetch('/api/recipe/detail?food=' + encodeURIComponent(currentRecipeFood), {
+    method: 'PUT', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ title, ingredients, steps })
+  });
+  if (res.ok) { closeRecipePanel(); loadRecipes(); }
+  else { alert('Save failed'); }
+}
+
+async function regenRecipe(food) {
+  const row = document.getElementById('rrow-' + food);
+  if (row) row.cells[3].innerHTML = '<em style="color:#999;font-size:12px">Generating…</em>';
+  await fetch('/api/recipe/generate?food=' + encodeURIComponent(food), { method: 'POST' });
+  loadRecipes();
+}
+
+async function deleteRecipe(food) {
+  if (!confirm('Delete cached recipe for ' + food + '?')) return;
+  await fetch('/api/recipe/detail?food=' + encodeURIComponent(food), { method: 'DELETE' });
+  if (currentRecipeFood === food) closeRecipePanel();
+  loadRecipes();
+}
+
+loadIngredientSelects().then(() => loadFoods('breakfast'));
+</script>
+</body>
+</html>
