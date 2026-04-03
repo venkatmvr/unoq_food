@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # flash.sh — unoq_food build + deploy tool
 #
+# !! REQUIRES TAILSCALE !!
+#   ALL commands that touch the Uno Q (deploy, push, restart, stop, status,
+#   logs, health, setup) connect via Tailscale IPs. If Tailscale is off on
+#   either this Mac or the Uno Q, every adb/curl command will hang or fail.
+#
+#   Mac:   tailscale status          — must show 100.114.105.110 (this Mac)
+#   Uno Q: tailscale status on board — must show 100.110.53.104
+#   Start: open Tailscale menu bar app, or: sudo tailscale up
+#
 # Commands:
 #   ./flash.sh              — cross-compile + push + restart on Uno Q (default)
 #   ./flash.sh build        — cross-compile only (no push)
@@ -16,6 +25,7 @@
 # Env vars:
 #   UNOQ_IP    — Uno Q Tailscale IP (default: 100.110.53.104)
 #   OLLAMA_URL — Ollama endpoint for recipe generation (default: http://100.114.105.110:11434)
+#              — Ollama also reached via Tailscale; recipes fail silently if Mac Tailscale is off
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -35,7 +45,22 @@ usage() {
   exit 0
 }
 
+check_tailscale() {
+  if ! tailscale status --peers=false &>/dev/null; then
+    echo "ERROR: Tailscale is not running on this Mac."
+    echo "  Start it: open the Tailscale menu bar app, or run: sudo tailscale up"
+    exit 1
+  fi
+  if ! ping -c1 -W1 "${UNOQ_IP}" &>/dev/null; then
+    echo "ERROR: Uno Q (${UNOQ_IP}) is unreachable via Tailscale."
+    echo "  Check: tailscale status | grep ${UNOQ_IP}"
+    echo "  The Uno Q must also have Tailscale running and connected."
+    exit 1
+  fi
+}
+
 adb_connect() {
+  check_tailscale
   adb connect "${UNOQ_IP}:5555" 2>&1 | grep -v "already connected" || true
 }
 
