@@ -41,9 +41,7 @@ After=network.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/sbin/iw dev wlan0 interface add wlan0_ap type __ap
-ExecStartPost=/sbin/ip addr add ${AP_IP}/24 dev wlan0_ap
-ExecStartPost=/sbin/ip link set wlan0_ap up
+ExecStart=/bin/bash -c '/sbin/iw dev wlan0 interface add wlan0_ap type __ap 2>/dev/null; /sbin/ip addr add ${AP_IP}/24 dev wlan0_ap 2>/dev/null; /sbin/ip link set wlan0_ap up; true'
 
 [Install]
 WantedBy=multi-user.target
