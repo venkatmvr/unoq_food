@@ -19,7 +19,7 @@
 #   Recipes already cached in food.db continue to work.
 #
 # Commands:
-#   ./flash.sh              — cross-compile + push + restart on Uno Q (default)
+#   ./flash.sh deploy       — cross-compile + push + restart on Uno Q (default)
 #   ./flash.sh build        — cross-compile only (no push)
 #   ./flash.sh push         — push already-built binary + data (no compile)
 #   ./flash.sh restart      — restart food-manager on Uno Q
