@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # flash.sh — unoq_food build + deploy tool
 #
-# !! REQUIRES TAILSCALE !!
-#   ALL commands that touch the Uno Q (deploy, push, restart, stop, status,
-#   logs, health, setup) connect via Tailscale IPs. If Tailscale is off on
-#   either this Mac or the Uno Q, every ssh/scp/curl command will hang or fail.
+# !! REQUIRES MAC TO BE ON picomate WiFi !!
+#   The Uno Q runs wlan0 as a 2.4GHz AP ("picomate") with NO home WiFi / Tailscale.
+#   ALL commands that touch the Uno Q connect via the AP IP 192.168.4.1.
+#   If the Mac is not joined to picomate, every ssh/scp/curl command will fail.
 #
-#   Mac:   tailscale status          — must show 100.114.105.110 (this Mac)
-#   Uno Q: tailscale status on board — must show 100.110.53.104
-#   Start: open Tailscale menu bar app, or: sudo tailscale up
+#   Join picomate: SSID=picomate, password=srilakshmi
+#   Uno Q AP IP:  192.168.4.1
+#
+#   Note: Ollama recipe generation is unavailable (no internet on Uno Q).
+#   Recipes already cached in food.db continue to work.
 #
 # Commands:
 #   ./flash.sh              — cross-compile + push + restart on Uno Q (default)
@@ -18,24 +20,21 @@
 #   ./flash.sh stop         — stop food-manager on Uno Q
 #   ./flash.sh status       — show food-manager service status on Uno Q
 #   ./flash.sh logs         — tail food-manager log on Uno Q
-#   ./flash.sh health       — curl health check via Tailscale
+#   ./flash.sh health       — curl health check
 #   ./flash.sh setup        — first-time: create remote dirs + install systemd unit
 #   ./flash.sh help         — show this message
 #
 # Env vars:
-#   UNOQ_IP    — Uno Q Tailscale IP (default: 100.110.53.104)
+#   UNOQ_IP    — Uno Q IP (default: 192.168.4.1 — AP address on picomate network)
 #   UNOQ_PASS  — SSH password (default: Ramana@1964)
-#   OLLAMA_URL — Ollama endpoint for recipe generation (default: http://100.114.105.110:11434)
-#              — Ollama also reached via Tailscale; recipes fail silently if Mac Tailscale is off
 
 set -euo pipefail
 cd "$(dirname "$0")"
 REPO_ROOT="$(pwd)"
 
-UNOQ_IP="${UNOQ_IP:-100.110.53.104}"
+UNOQ_IP="${UNOQ_IP:-192.168.4.1}"
 UNOQ_USER="${UNOQ_USER:-arduino}"
 UNOQ_PASS="${UNOQ_PASS:-Ramana@1964}"
-OLLAMA_URL="${OLLAMA_URL:-http://100.114.105.110:11434}"
 TARGET="aarch64-unknown-linux-gnu"
 BINARY="target/${TARGET}/release/food-manager"
 REMOTE_DIR="/home/arduino/unoq_food"
@@ -54,16 +53,10 @@ usage() {
   exit 0
 }
 
-check_tailscale() {
-  if ! /Applications/Tailscale.app/Contents/MacOS/Tailscale status --peers=false &>/dev/null; then
-    echo "ERROR: Tailscale is not running on this Mac."
-    echo "  Start it: open the Tailscale menu bar app, or run: sudo tailscale up"
-    exit 1
-  fi
+check_network() {
   if ! ping -c1 -W1 "${UNOQ_IP}" &>/dev/null; then
-    echo "ERROR: Uno Q (${UNOQ_IP}) is unreachable via Tailscale."
-    echo "  Check: tailscale status | grep ${UNOQ_IP}"
-    echo "  The Uno Q must also have Tailscale running and connected."
+    echo "ERROR: Uno Q (${UNOQ_IP}) is unreachable."
+    echo "  Join the 'picomate' WiFi network on this Mac first (password: srilakshmi)."
     exit 1
   fi
 }
@@ -75,7 +68,7 @@ build() {
 }
 
 push() {
-  check_tailscale
+  check_network
   echo "==> Pushing binary..."
   ${SCP} "${BINARY}" "${UNOQ_USER}@${UNOQ_IP}:${REMOTE_DIR}/food-manager"
   rssh "chmod +x ${REMOTE_DIR}/food-manager"
@@ -116,20 +109,20 @@ case "${cmd}" in
     service_restart
     ;;
   restart)
-    check_tailscale
+    check_network
     service_restart
     ;;
   stop)
-    check_tailscale
+    check_network
     echo "==> Stopping food-manager..."
     rsudo systemctl stop food-manager
     ;;
   status)
-    check_tailscale
+    check_network
     rsudo systemctl status food-manager --no-pager
     ;;
   logs)
-    check_tailscale
+    check_network
     rsudo journalctl -u food-manager -f --no-pager
     ;;
   health)
@@ -137,7 +130,7 @@ case "${cmd}" in
     curl -s "http://${UNOQ_IP}:9091/api/menu/packed" | head -5
     ;;
   setup)
-    check_tailscale
+    check_network
     echo "==> Creating remote directories..."
     rssh "mkdir -p ${REMOTE_DIR}/{data,server/src/static}"
     echo "==> Installing systemd unit..."
