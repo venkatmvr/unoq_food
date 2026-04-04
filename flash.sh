@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # flash.sh — unoq_food build + deploy tool
 #
-# !! REQUIRES MAC TO BE ON picomate WiFi !!
+# First-time setup on a fresh Uno Q (while it still has home WiFi):
+#   UNOQ_IP=<tailscale-or-lan-ip> ./flash.sh setup       — install all services + AP config
+#   UNOQ_IP=<tailscale-or-lan-ip> ./flash.sh             — build + deploy food-manager binary
+#   UNOQ_IP=<tailscale-or-lan-ip> ./flash.sh ap-cutover  — switch wlan0 to AP (SSH dies)
+#   After cutover: join Mac to picomate WiFi, then use ./flash.sh normally.
+#
+# !! AFTER AP CUTOVER: REQUIRES MAC TO BE ON picomate WiFi !!
 #   The Uno Q runs wlan0 as a 2.4GHz AP ("picomate") with NO home WiFi / Tailscale.
 #   ALL commands that touch the Uno Q connect via the AP IP 192.168.4.1.
 #   If the Mac is not joined to picomate, every ssh/scp/curl command will fail.
@@ -21,7 +27,8 @@
 #   ./flash.sh status       — show food-manager service status on Uno Q
 #   ./flash.sh logs         — tail food-manager log on Uno Q
 #   ./flash.sh health       — curl health check
-#   ./flash.sh setup        — first-time: create remote dirs + install systemd unit
+#   ./flash.sh setup        — first-time: install all services, AP configs, sudoers
+#   ./flash.sh ap-cutover   — switch wlan0 from home WiFi to picomate AP (SSH dies after)
 #   ./flash.sh help         — show this message
 #
 # Env vars:
@@ -131,14 +138,74 @@ case "${cmd}" in
     ;;
   setup)
     check_network
-    echo "==> Creating remote directories..."
+    echo "==> [1/6] Creating remote directories..."
     rssh "mkdir -p ${REMOTE_DIR}/{data,server/src/static}"
-    echo "==> Installing systemd unit..."
+
+    echo "==> [2/6] Configuring passwordless sudo for arduino..."
+    rssh "echo '${UNOQ_PASS}' | sudo -S -p '' bash -c \
+      'echo \"arduino ALL=(ALL) NOPASSWD: ALL\" > /etc/sudoers.d/arduino-nopasswd && \
+       chmod 440 /etc/sudoers.d/arduino-nopasswd'"
+
+    echo "==> [3/6] Installing hostapd + dnsmasq..."
+    rsudo apt-get install -y hostapd dnsmasq
+    rsudo systemctl unmask hostapd
+
+    echo "==> [4/6] Installing AP configs..."
+    ${SCP} network/hostapd.conf  "${UNOQ_USER}@${UNOQ_IP}:/tmp/hostapd.conf"
+    ${SCP} network/dnsmasq-ap.conf "${UNOQ_USER}@${UNOQ_IP}:/tmp/dnsmasq-ap.conf"
+    rsudo "mv /tmp/hostapd.conf /etc/hostapd/hostapd.conf"
+    rsudo "mv /tmp/dnsmasq-ap.conf /etc/dnsmasq.d/ap.conf"
+
+    echo "==> [5/6] Installing systemd units..."
     ${SCP} systemd/food-manager.service "${UNOQ_USER}@${UNOQ_IP}:/tmp/food-manager.service"
     rsudo "mv /tmp/food-manager.service /etc/systemd/system/food-manager.service"
+    rsudo bash -c "'tee /etc/systemd/system/ap-cutover.service > /dev/null << EOF
+[Unit]
+Description=Cut wlan0 from STA to AP mode (picomate)
+After=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/bash -c \
+  \"nmcli device set wlan0 managed no; \
+  nmcli device disconnect wlan0 2>/dev/null; \
+  sleep 2; \
+  systemctl stop wlan0-ap hostapd 2>/dev/null; \
+  iw dev wlan0_ap del 2>/dev/null; \
+  sleep 1; \
+  systemctl start hostapd; \
+  sleep 2; \
+  ip addr add 192.168.4.1/24 dev wlan0 2>/dev/null; \
+  ip link set wlan0 up; \
+  systemctl restart dnsmasq; \
+  systemctl restart food-manager\"
+EOF'"
     rsudo systemctl daemon-reload
-    rsudo systemctl enable food-manager
-    echo "==> Setup done. Run './flash.sh' to build and deploy."
+    rsudo systemctl enable food-manager hostapd dnsmasq
+
+    echo "==> [6/6] Done."
+    echo ""
+    echo "  Next steps:"
+    echo "  1. UNOQ_IP=${UNOQ_IP} ./flash.sh       — build + deploy food-manager binary"
+    echo "  2. UNOQ_IP=${UNOQ_IP} ./flash.sh ap-cutover — switch to AP (SSH will die)"
+    echo "  3. Join Mac to 'picomate' WiFi, then use ./flash.sh normally"
+    ;;
+  ap-cutover)
+    check_network
+    echo "==> Triggering AP cutover on Uno Q..."
+    echo "    wlan0 will switch from home WiFi to picomate AP."
+    echo "    SSH will disconnect. Wait ~10s then join Mac to 'picomate' (pw: srilakshmi)."
+    rssh "sudo systemctl start ap-cutover &"
+    echo "==> Cutover triggered. Waiting 12s..."
+    sleep 12
+    if curl -sf --max-time 3 "http://192.168.4.1:9091/health" &>/dev/null; then
+      echo "==> picomate AP is up. Health check OK."
+      echo "    Join Mac to 'picomate' WiFi to use ./flash.sh deploy."
+    else
+      echo "==> 192.168.4.1 not reachable from Mac yet."
+      echo "    Join Mac to 'picomate' WiFi first, then run: ./flash.sh health"
+    fi
     ;;
   help|-h|--help)
     usage
