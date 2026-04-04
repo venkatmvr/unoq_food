@@ -43,6 +43,50 @@ UNOQ_IP=<ip> ./flash.sh ap-cutover   # only if AP mode is intentional
 
 ---
 
+## Cloud + Multi-tenant Architecture (Product Vision)
+
+**Target:** Ship Pico W devices to end users who connect to a cloud-hosted food server.
+No Uno Q in the loop for end users. Uno Q remains a personal dev server.
+
+### WiFi Provisioning — Pico W SoftAP flow
+
+End users have no way to pre-configure WiFi credentials. Solution: Pico W acts as
+a temporary AP on first boot (standard IoT onboarding pattern — same as Sonos, Hue).
+
+```
+First boot (no credentials in flash)
+  └── Pico W → AP mode, broadcasts "picomate-setup"
+      └── User joins "picomate-setup" on phone (no password)
+          └── Captive portal opens in phone browser (served by Pico W lwIP)
+              └── User fills in: home WiFi SSID / password / account email
+                  └── Pico W saves credentials to flash → reboots in STA mode
+                      └── Connects to home WiFi
+                          └── POST /api/register {device_id, email} to cloud API
+                              └── Normal operation — polls cloud for daily menu
+```
+
+Re-provisioning: hold encoder button 5s → clears WiFi flash → back to AP mode.
+Device ID: derived from RP2040 unique hardware ID (no manual config).
+
+- [ ] Implement SoftAP provisioning mode in Pico W firmware (picomate repo)
+  - [ ] CYW43 AP mode init (cyw43_arch switches from STA to AP)
+  - [ ] lwIP HTTP server serving a small HTML form (SSID + password + email)
+  - [ ] On form submit: save credentials to flash, reboot into STA mode
+  - [ ] 5-second long-press on encoder clears credentials and re-enters AP mode
+- [ ] Cloud registration endpoint: `POST /api/register {device_id, email}`
+- [ ] Device → user account linking in DB
+
+### Cloud Server (Digital Ocean)
+
+- [ ] Extend food-manager to multi-tenant (per-user food.db or shared DB with user_id)
+- [ ] User auth (email + magic link or simple password)
+- [ ] Device registration API (device_id → user account)
+- [ ] Deploy to DO droplet ($6/mo, Rust + SQLite is very lightweight)
+- [ ] Domain + TLS (Let's Encrypt via nginx reverse proxy)
+- [ ] Update Pico W HOST_IP → cloud domain at compile time (or store in flash post-provisioning)
+
+---
+
 ## Pico W Sync Frequency
 
 Currently the Pico W fetches menu data on every encoder button press.
