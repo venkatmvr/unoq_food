@@ -4,7 +4,7 @@
 # !! REQUIRES TAILSCALE !!
 #   ALL commands that touch the Uno Q (deploy, push, restart, stop, status,
 #   logs, health, setup) connect via Tailscale IPs. If Tailscale is off on
-#   either this Mac or the Uno Q, every adb/curl command will hang or fail.
+#   either this Mac or the Uno Q, every ssh/scp/curl command will hang or fail.
 #
 #   Mac:   tailscale status          — must show 100.114.105.110 (this Mac)
 #   Uno Q: tailscale status on board — must show 100.110.53.104
@@ -24,6 +24,7 @@
 #
 # Env vars:
 #   UNOQ_IP    — Uno Q Tailscale IP (default: 100.110.53.104)
+#   UNOQ_PASS  — SSH password (default: Ramana@1964)
 #   OLLAMA_URL — Ollama endpoint for recipe generation (default: http://100.114.105.110:11434)
 #              — Ollama also reached via Tailscale; recipes fail silently if Mac Tailscale is off
 
@@ -32,11 +33,19 @@ cd "$(dirname "$0")"
 REPO_ROOT="$(pwd)"
 
 UNOQ_IP="${UNOQ_IP:-100.110.53.104}"
+UNOQ_USER="${UNOQ_USER:-arduino}"
+UNOQ_PASS="${UNOQ_PASS:-Ramana@1964}"
 OLLAMA_URL="${OLLAMA_URL:-http://100.114.105.110:11434}"
 TARGET="aarch64-unknown-linux-gnu"
 BINARY="target/${TARGET}/release/food-manager"
 REMOTE_DIR="/home/arduino/unoq_food"
-ADB="adb -s ${UNOQ_IP}:5555"
+
+SCP="sshpass -p ${UNOQ_PASS} scp -o StrictHostKeyChecking=no"
+
+# run a command on Uno Q
+rssh() { sshpass -p "${UNOQ_PASS}" ssh -o StrictHostKeyChecking=no -o LogLevel=QUIET "${UNOQ_USER}@${UNOQ_IP}" "$@"; }
+# run a sudo command on Uno Q (feeds password to sudo -S)
+rsudo() { rssh "sudo $*"; }
 
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -46,7 +55,7 @@ usage() {
 }
 
 check_tailscale() {
-  if ! tailscale status --peers=false &>/dev/null; then
+  if ! /Applications/Tailscale.app/Contents/MacOS/Tailscale status --peers=false &>/dev/null; then
     echo "ERROR: Tailscale is not running on this Mac."
     echo "  Start it: open the Tailscale menu bar app, or run: sudo tailscale up"
     exit 1
@@ -59,11 +68,6 @@ check_tailscale() {
   fi
 }
 
-adb_connect() {
-  check_tailscale
-  adb connect "${UNOQ_IP}:5555" 2>&1 | grep -v "already connected" || true
-}
-
 build() {
   echo "==> Cross-compiling food-manager (${TARGET})..."
   cargo build --release --target "${TARGET}" -p food-manager
@@ -71,23 +75,23 @@ build() {
 }
 
 push() {
-  adb_connect
+  check_tailscale
   echo "==> Pushing binary..."
-  ${ADB} push "${BINARY}" "${REMOTE_DIR}/food-manager"
-  ${ADB} shell "chmod +x ${REMOTE_DIR}/food-manager"
+  ${SCP} "${BINARY}" "${UNOQ_USER}@${UNOQ_IP}:${REMOTE_DIR}/food-manager"
+  rssh "chmod +x ${REMOTE_DIR}/food-manager"
 
   echo "==> Pushing data..."
-  ${ADB} push data/food.db "${REMOTE_DIR}/data/food.db"
+  ${SCP} data/food.db "${UNOQ_USER}@${UNOQ_IP}:${REMOTE_DIR}/data/food.db"
 
   echo "==> Pushing static files..."
-  ${ADB} push server/src/static/index.html "${REMOTE_DIR}/server/src/static/index.html"
+  ${SCP} server/src/static/index.html "${UNOQ_USER}@${UNOQ_IP}:${REMOTE_DIR}/server/src/static/index.html"
 }
 
 service_restart() {
   echo "==> Restarting food-manager (systemd)..."
-  ${ADB} shell "sudo systemctl restart food-manager"
+  rsudo systemctl restart food-manager
   sleep 2
-  ${ADB} shell "sudo systemctl is-active food-manager && echo 'Running OK' || echo 'ERROR: check logs'"
+  rsudo "systemctl is-active food-manager && echo 'Running OK' || echo 'ERROR: check logs'"
 }
 
 # ─── Commands ────────────────────────────────────────────────────────────────
@@ -112,35 +116,35 @@ case "${cmd}" in
     service_restart
     ;;
   restart)
-    adb_connect
+    check_tailscale
     service_restart
     ;;
   stop)
-    adb_connect
+    check_tailscale
     echo "==> Stopping food-manager..."
-    ${ADB} shell "sudo systemctl stop food-manager"
+    rsudo systemctl stop food-manager
     ;;
   status)
-    adb_connect
-    ${ADB} shell "sudo systemctl status food-manager --no-pager"
+    check_tailscale
+    rsudo systemctl status food-manager --no-pager
     ;;
   logs)
-    adb_connect
-    ${ADB} shell "sudo journalctl -u food-manager -f --no-pager"
+    check_tailscale
+    rsudo journalctl -u food-manager -f --no-pager
     ;;
   health)
     curl -sf "http://${UNOQ_IP}:9091/health" && echo "OK"
     curl -s "http://${UNOQ_IP}:9091/api/menu/packed" | head -5
     ;;
   setup)
-    adb_connect
+    check_tailscale
     echo "==> Creating remote directories..."
-    ${ADB} shell "mkdir -p ${REMOTE_DIR}/{data,server/src/static}"
+    rssh "mkdir -p ${REMOTE_DIR}/{data,server/src/static}"
     echo "==> Installing systemd unit..."
-    ${ADB} push systemd/food-manager.service /tmp/food-manager.service
-    ${ADB} shell "sudo mv /tmp/food-manager.service /etc/systemd/system/food-manager.service"
-    ${ADB} shell "sudo systemctl daemon-reload"
-    ${ADB} shell "sudo systemctl enable food-manager"
+    ${SCP} systemd/food-manager.service "${UNOQ_USER}@${UNOQ_IP}:/tmp/food-manager.service"
+    rsudo "mv /tmp/food-manager.service /etc/systemd/system/food-manager.service"
+    rsudo systemctl daemon-reload
+    rsudo systemctl enable food-manager
     echo "==> Setup done. Run './flash.sh' to build and deploy."
     ;;
   help|-h|--help)
